@@ -1,5 +1,20 @@
 const SHA256 = require("crypto-js/sha256");
 
+// var fs = require("fs");
+
+// fs.readFileSync("coin.key", function(err, buf) {
+//   console.log(buf.toString());
+// });
+
+// Import elliptic
+const EC = require('elliptic').ec;
+const ec = new EC('secp256k1');
+
+// Create key object
+const myKey = ec.keyFromPrivate('7c4c45907dec40c91bab3480c39032e90049f1a44f3e18c3e07c23e3273995cf');
+const myWalletAddress = myKey.getPublic('hex');
+
+
 class Block{
     constructor(timestamp, transactions, previousHash = '') {
         this.previousHash = previousHash;
@@ -22,6 +37,16 @@ class Block{
           
         console.log("BLOCK MINED: " + this.hash);
     }
+
+    hasValidTransactions(){
+        for(const tx of this.transactions){
+            if(!tx.isValid()){
+                return false;
+            }
+        }
+    
+        return true;
+    }
 }
 
 class Transaction{
@@ -29,6 +54,32 @@ class Transaction{
         this.fromAddress = fromAddress;
         this.toAddress = toAddress;
         this.amount = amount;
+    }
+
+    calculateHash(){
+        return SHA256(this.fromAddress + this.toAddress + this.amount)
+                .toString();
+    }
+
+    signTransaction(signingKey){
+        if(signingKey.getPublic('hex') !== this.fromAddress){
+            throw new Error('You cannot sign transactions for other wallets!');
+        }
+    
+        const hashTx = this.calculateHash();
+        const sig = signingKey.sign(hashTx, 'base64');
+        this.signature = sig.toDER('hex');
+    }
+
+    isValid(){
+        if(this.fromAddress === null) return true;
+      
+        if(!this.signature || this.signature.length === 0){
+            throw new Error('No signature in this transaction');
+        }
+    
+        const publicKey = ec.keyFromPublic(this.fromAddress, 'hex');
+        return publicKey.verify(this.calculateHash(), this.signature);
     }
 }
 
@@ -44,25 +95,30 @@ class Blockchain{
         this.miningReward = 100;
     }
 
-    createTransaction(transaction) {
-        // There should be some validation here!
+    addTransaction(transaction){
+        if(!transaction.fromAddress || !transaction.toAddress){
+            throw new Error('Transaction must include from and to address');
+        }
     
-        // Push into onto the "pendingTransactions" array
+        if(!transaction.isValid()){
+            throw new Error('Cannot add invalid transaction to chain');
+        }
+    
         this.pendingTransactions.push(transaction);
     }
 
     minePendingTransactions(miningRewardAddress) {
+        // Send the mining reward
+        this.pendingTransactions.push(new Transaction(null, miningRewardAddress, this.miningReward));
         // Create new block with all pending transactions and mine it..
-        let block = new Block(Date.now(), this.pendingTransactions);
+        let block = new Block(Date.now(), this.pendingTransactions, this.getLatestBlock().hash);
         block.mineBlock(this.difficulty);
     
         // Add the newly mined block to the chain
         this.chain.push(block);
-    
+
         // Reset the pending transactions and send the mining reward
-        this.pendingTransactions = [
-            new Transaction(null, miningRewardAddress, this.miningReward)
-        ];
+        this.pendingTransactions=[];
     }
 
     getBalanceOfAddress(address){
@@ -88,71 +144,64 @@ class Blockchain{
     }
 
     createGenesisBlock(){
-        return new Block("01/01/2017", "Genesis block", "0");
+        return new Block("01/01/2017", [], "0");
     }
 
-    // getLatestBlock(){
-    //     return this.chain[this.chain.length - 1];
-    // }
+    getLatestBlock(){
+        return this.chain[this.chain.length - 1];
+    }
 
-    // addBlock(newBlock){
+    isChainValid(){
+        for (let i = 1; i < this.chain.length; i++){
+            const currentBlock = this.chain[i];
+            const previousBlock = this.chain[i - 1];
+        
+            // Recalculate the hash of the block and see if it matches up.
+                // This allows us to detect changes to a single block
+            if (currentBlock.hash !== currentBlock.calculateHash()) {
+                return false;
+            }
+        
+            // Check if this block actually points to the previous block (hash)
+            if (currentBlock.previousHash !== previousBlock.hash) {
+                return false;
+            }
 
-    //     // The new block needs to point to the hash of the latest block on the chain.
-    //     newBlock.previousHash = this.getLatestBlock().hash;
+            if (!currentBlock.hasValidTransactions()) {
+                return false;
+            }
+        }
         
-    //     newBlock.mineBlock(this.difficulty);
-    
-    //     // Now the block is ready and can be added to chain!
-    //     this.chain.push(newBlock);
-    // }
-
-    // isChainValid(){
-    //     for (let i = 1; i < this.chain.length; i++){
-    //         const currentBlock = this.chain[i];
-    //         const previousBlock = this.chain[i - 1];
-        
-    //         // Recalculate the hash of the block and see if it matches up.
-    //             // This allows us to detect changes to a single block
-    //         if (currentBlock.hash !== currentBlock.calculateHash()) {
-    //             return false;
-    //         }
-        
-    //         // Check if this block actually points to the previous block (hash)
-    //         if (currentBlock.previousHash !== previousBlock.hash) {
-    //             return false;
-    //         }
-    //     }
-        
-    //       // Check the genesis block
-    //     if(JSON.stringify(this.chain[0]) !== JSON.stringify(this.createGenesisBlock())){
-    //         return false;
-    //     }
+          // Check the genesis block
+        if(JSON.stringify(this.chain[0]) !== JSON.stringify(this.createGenesisBlock())){
+            return false;
+        }
           
-    //     // If we managed to get here, the chain is valid!
-    //     return true;
-    // }
+        // If we managed to get here, the chain is valid!
+        return true;
+    }
 
 }
 
-let savjeeCoin = new Blockchain();
+// Create new instance of Blockchain class
+const savjeeCoin = new Blockchain();
 
-console.log('Creating some transactions...');
-savjeeCoin.createTransaction(new Transaction('address1', 'address2', 100));
-savjeeCoin.createTransaction(new Transaction('address2', 'address1', 50));
+// Make a transaction
+const tx1 = new Transaction(myWalletAddress, 'public key of recipient', 10);
+tx1.signTransaction(myKey);
+savjeeCoin.addTransaction(tx1);
 
-console.log('Starting the miner...');
-savjeeCoin.minePendingTransactions('xaviers-address');
+// Mine block
+savjeeCoin.minePendingTransactions(myWalletAddress);
+console.log('Balance of xavier is', savjeeCoin.getBalanceOfAddress(myWalletAddress));
 
-console.log('Balance of Xaviers address is', savjeeCoin.getBalanceOfAddress('xaviers-address'));
+// Check if the chain is valid
+console.log();
+console.log('Blockchain valid?', savjeeCoin.isChainValid() ? 'Yes' : 'No');
 
-console.log('Starting the miner again!');
-savjeeCoin.minePendingTransactions("xaviers-address");
+// Tampering
+savjeeCoin.chain[1].transactions[0].amount = 20;//genesis->block->null
 
-console.log('Balance of Xaviers address is', savjeeCoin.getBalanceOfAddress('xaviers-address'));
-// Output: 100
-
-console.log('Starting the miner again!');
-savjeeCoin.minePendingTransactions("xaviers-address");
-
-console.log('Balance of Xaviers address is', savjeeCoin.getBalanceOfAddress('xaviers-address'));
-// Output: 200
+// Check if the chain is valid
+console.log();
+console.log('Blockchain valid?', savjeeCoin.isChainValid() ? 'Yes' : 'No');
