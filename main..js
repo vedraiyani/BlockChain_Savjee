@@ -8,9 +8,21 @@ class Block{
             
         // When creating a new Block, automatically calculate its hash.
         this.hash = this.calculateHash();
+        this.nonce = 0;
     }
     calculateHash() {
-        return SHA256(this.previousHash + this.timestamp + JSON.stringify(this.data)).toString();
+        return SHA256(this.index + this.previousHash + this.timestamp +    JSON.stringify(this.data) + this.nonce).toString();
+      }
+
+    mineBlock(difficulty) {
+        // Keep changing the nonce until the hash of our block starts with enough zero's.
+        while (!this.hash.startsWith(Array(difficulty + 1).join("0"))) {
+            // while (this.hash.substring(0, difficulty) !== Array(difficulty + 1).join("0")) {
+          this.nonce++;
+          this.hash = this.calculateHash();
+        }
+          
+        console.log("BLOCK MINED: " + this.hash);
     }
 }
 
@@ -19,6 +31,7 @@ class Block{
 class Blockchain{
     constructor() {
       this.chain = [this.createGenesisBlock()];
+      this.difficulty = 3;
     }
 
     createGenesisBlock(){
@@ -34,8 +47,7 @@ class Blockchain{
         // The new block needs to point to the hash of the latest block on the chain.
         newBlock.previousHash = this.getLatestBlock().hash;
         
-        // Calculate the hash of the new block
-        newBlock.hash = newBlock.calculateHash();
+        newBlock.mineBlock(this.difficulty);
     
         // Now the block is ready and can be added to chain!
         this.chain.push(newBlock);
@@ -70,9 +82,11 @@ class Blockchain{
 }
 
 let savjeeCoin = new Blockchain();
+console.log('Mining block 1...');
+savjeeCoin.addBlock(new Block(1, "20/07/2017", { amount: 4 }));
 
-savjeeCoin.addBlock(new Block("20/07/2017", { amount: 4 }));
-savjeeCoin.addBlock(new Block("22/07/2017", { amount: 10 }));
+console.log('Mining block 2...');
+savjeeCoin.addBlock(new Block(2, "20/07/2017", { amount: 8 }));
 
 console.log(JSON.stringify(savjeeCoin, null, 4));
 console.log('Blockchain valid? ' + savjeeCoin.isChainValid());
